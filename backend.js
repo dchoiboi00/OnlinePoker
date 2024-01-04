@@ -17,15 +17,50 @@ app.get('/', (req, res) => {
 
 // Backend objects
 
+const { Deck } =  require('./public/js/classes/Deck')
+
 const backEndPlayers = {}
-const backEndDeck = []
+const backEndDeck = new Deck()
+backEndDeck.shuffle()
+const NUM_PLAYERS = 7
+const emptySeats = Array.from({length: NUM_PLAYERS}, () => true)
+
+function findEmptySeat() {
+    // if all emptySeats are false
+    if (!emptySeats) {
+        return -1
+    }
+    for (let i = 0; i < emptySeats.length; i++){
+        if (emptySeats[i]){
+            return i
+        }
+    }
+}
 
 // Backend logic on user events
 io.on('connection', (socket) => {
     console.log(`a user connected with id ${socket.id}`)
+    console.log('current deck:', backEndDeck)
 
-
-
+    // On user form submission
+    socket.on('initGame', ({ username }) => {
+        backEndPlayers[socket.id] = {
+            seat: findEmptySeat(),
+            username
+        }
+        emptySeats[backEndPlayers[socket.id].seat] = false
+        
+    })
+    
+    // On disconnect
+    socket.on('disconnect', (reason) => {
+        console.log(reason)
+        if (backEndPlayers[socket.id]){
+            emptySeats[backEndPlayers[socket.id].seat] = true
+        }
+        delete backEndPlayers[socket.id]
+        io.emit('updatePlayers', backEndPlayers)
+    })
 
 })
 
@@ -33,10 +68,11 @@ io.on('connection', (socket) => {
 // Backend ticker
 setInterval(() => {
     // update everything
-    
+    io.emit('updateDeck', backEndDeck)
+    io.emit('updatePlayers', backEndPlayers)
+    console.log(backEndPlayers)
 
-
-}, 15)
+}, 1500)
 
 
 
@@ -47,3 +83,7 @@ server.listen(PORT, () => {
 })
 
 console.log('server did load')
+
+module.exports = {
+    NUM_PLAYERS
+}
