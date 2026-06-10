@@ -53,3 +53,24 @@ test('heads-up: button posts small blind and acts first preflop', () => {
   assert.strictEqual(t.seats[1].bet, 20) // BB
   assert.strictEqual(t.toActSeat, 0)     // button acts first preflop heads-up
 })
+
+test('legalActions for UTG facing the big blind', () => {
+  const t = new PokerTable({ smallBlind: 10, bigBlind: 20 })
+  t.sit('a', 'Alice'); t.sit('b', 'Bob'); t.sit('c', 'Carol')
+  t.startHand(new Deck().shuffle(() => 0))
+  const la = t.legalActions('a') // seat 0, UTG, has bet 0, faces 20
+  assert.strictEqual(la.canFold, true)
+  assert.strictEqual(la.canCheck, false)   // facing a bet
+  assert.strictEqual(la.canCall, true)
+  assert.strictEqual(la.callAmount, 20)
+  assert.strictEqual(la.canRaise, true)
+  assert.strictEqual(la.minRaiseTo, 40)    // current 20 + minRaise 20
+  assert.strictEqual(la.maxRaiseTo, 1500)  // whole stack all-in
+})
+
+test('legalActions returns null when it is not your turn', () => {
+  const t = new PokerTable()
+  t.sit('a', 'Alice'); t.sit('b', 'Bob'); t.sit('c', 'Carol')
+  t.startHand(new Deck().shuffle(() => 0))
+  assert.strictEqual(t.legalActions('b'), null) // seat 1 is not to act
+})

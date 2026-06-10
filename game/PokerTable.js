@@ -115,6 +115,26 @@ class PokerTable {
     p.committed += post
     if (p.stack === 0) p.allIn = true
   }
+
+  legalActions(id) {
+    const seat = this.findSeatById(id)
+    if (seat === -1 || seat !== this.toActSeat || this.phase === 'waiting' || this.phase === 'payout') {
+      return null
+    }
+    const p = this.seats[seat]
+    const toCall = this.currentBet - p.bet
+    const maxRaiseTo = p.bet + p.stack            // total if all-in
+    const minRaiseTo = Math.min(this.currentBet + this.minRaise, maxRaiseTo)
+    return {
+      canFold: true,
+      canCheck: toCall === 0,
+      canCall: toCall > 0 && p.stack > 0,
+      callAmount: Math.min(toCall, p.stack),
+      canRaise: p.stack > toCall,                 // must have more than a call
+      minRaiseTo,
+      maxRaiseTo,
+    }
+  }
 }
 
 module.exports = { PokerTable, NUM_SEATS }
