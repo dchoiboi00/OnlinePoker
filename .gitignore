@@ -6,3 +6,6 @@ node_modules/
 
 # Superpowers brainstorming companion
 .superpowers/
+
+# Smoke-test screenshots
+.smoke/
