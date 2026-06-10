@@ -216,12 +216,16 @@ class PokerTable {
         if (!isAllIn && target < minTo) throw new Error('Raise below the minimum')
         const raiseSize = target - this.currentBet
         this.commit(p, target - p.bet)
-        this.minRaise = Math.max(this.minRaise, raiseSize)
         this.currentBet = target
-        // a raise reopens action for everyone still live
-        for (const i of this.occupiedSeats()) {
-          const q = this.seats[i]
-          if (i !== seat && !q.folded && !q.allIn) q.hasActed = false
+        // A sub-minimum all-in (raiseSize < minRaise) does NOT re-open betting
+        // for players who already acted — this matters for unequal-stack play
+        // (Target C).  Only a full raise resets hasActed and bumps minRaise.
+        if (raiseSize >= this.minRaise) {
+          this.minRaise = Math.max(this.minRaise, raiseSize)
+          for (const i of this.occupiedSeats()) {
+            const q = this.seats[i]
+            if (i !== seat && !q.folded && !q.allIn) q.hasActed = false
+          }
         }
         break
       }
