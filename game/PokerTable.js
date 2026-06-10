@@ -279,6 +279,40 @@ class PokerTable {
     this.pot = 0
     this.phase = 'payout'
   }
+
+  getStateFor(id) {
+    const liveBets = this.occupiedSeats().reduce((sum, i) => sum + this.seats[i].bet, 0)
+    return {
+      phase: this.phase,
+      board: this.board,
+      pot: this.pot + liveBets,
+      currentBet: this.currentBet,
+      buttonSeat: this.buttonSeat,
+      toActSeat: this.toActSeat,
+      winners: this.winners,
+      numSeats: NUM_SEATS,
+      seats: this.seats.map((p, idx) => {
+        if (!p) return null
+        const isSelf = p.id === id
+        const revealOpponent = this.reveal && !p.folded
+        let holeCards
+        if (p.holeCards.length === 0) holeCards = []
+        else if (isSelf || revealOpponent) holeCards = p.holeCards
+        else holeCards = 'hidden'
+        return {
+          seat: idx,
+          username: p.username,
+          stack: p.stack,
+          bet: p.bet,
+          folded: p.folded,
+          allIn: p.allIn,
+          isSelf,
+          holeCards,
+        }
+      }),
+      legalActions: this.legalActions(id),
+    }
+  }
 }
 
 module.exports = { PokerTable, NUM_SEATS }

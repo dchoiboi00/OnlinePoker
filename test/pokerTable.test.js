@@ -169,3 +169,29 @@ test('a tie chops the pot evenly', () => {
   assert.strictEqual(t.seats[0].stack, 1500) // each got their 20 back
   assert.strictEqual(t.seats[1].stack, 1500)
 })
+
+test('getStateFor hides opponent hole cards before showdown', () => {
+  const t = new PokerTable()
+  t.sit('a', 'Alice'); t.sit('b', 'Bob'); t.sit('c', 'Carol')
+  t.startHand(new Deck().shuffle(() => 0))
+  const view = t.getStateFor('a')
+  const self = view.seats.find(s => s && s.isSelf)
+  const other = view.seats.find(s => s && !s.isSelf)
+  assert.strictEqual(self.holeCards.length, 2)
+  assert.ok(Array.isArray(self.holeCards) && typeof self.holeCards[0] === 'object')
+  assert.strictEqual(other.holeCards, 'hidden')
+  assert.ok(view.legalActions) // it's Alice's turn (UTG)
+})
+
+test('getStateFor reveals live opponents at showdown', () => {
+  const t = new PokerTable({ smallBlind: 10, bigBlind: 20 })
+  t.sit('a', 'Alice'); t.sit('b', 'Bob')
+  t.startHand(new Deck().shuffle(() => 0))
+  t.applyAction('a', { type: 'call' }); t.applyAction('b', { type: 'check' })
+  t.applyAction('b', { type: 'check' }); t.applyAction('a', { type: 'check' })
+  t.applyAction('b', { type: 'check' }); t.applyAction('a', { type: 'check' })
+  t.applyAction('b', { type: 'check' }); t.applyAction('a', { type: 'check' })
+  const view = t.getStateFor('a')
+  const other = view.seats.find(s => s && !s.isSelf)
+  assert.ok(Array.isArray(other.holeCards) && other.holeCards.length === 2)
+})
