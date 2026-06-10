@@ -110,3 +110,62 @@ test('calling around preflop closes the round and deals the flop', () => {
   // postflop first to act is first seat left of button = SB seat 1
   assert.strictEqual(t.toActSeat, 1)
 })
+
+// Helper: deal specific hole cards + board by stacking the deck.
+// Dealing starts LEFT of the button, no burn cards. Heads-up (seats 0=button/SB,
+// 1=BB), seatsClockwiseFrom(button) = [seat1, seat0], so:
+//   round 1: seat1 <- top[0], seat0 <- top[1]
+//   round 2: seat1 <- top[2], seat0 <- top[3]
+//   flop = top[4..6], turn = top[7], river = top[8]
+test('showdown awards the pot to the best hand', () => {
+  const c = (rank, suit) => ({ rank, suit })
+  // seat0 (Alice) = A♠ A♥ ; seat1 (Bob) = K♦ K♣
+  // board A♦ 7♣ 2♠ 9♥ 3♦ -> Alice trip aces beats Bob's pair of kings
+  const top = [
+    c(13, 'Diamonds'), c(14, 'Spades'),   // round 1: seat1=K♦, seat0=A♠
+    c(13, 'Clubs'),    c(14, 'Hearts'),   // round 2: seat1=K♣, seat0=A♥
+    c(14, 'Diamonds'), c(7, 'Clubs'), c(2, 'Spades'), // flop
+    c(9, 'Hearts'),                        // turn
+    c(3, 'Diamonds'),                      // river
+  ]
+  const { Deck } = require('../game/cards')
+  const rest = new Deck().cards.filter(x => !top.some(tt => tt.rank === x.rank && tt.suit === x.suit))
+  const t = new PokerTable({ smallBlind: 10, bigBlind: 20 })
+  t.sit('a', 'Alice'); t.sit('b', 'Bob')
+  t.startHand(new Deck([...top, ...rest]))
+  // play check/call to showdown: preflop button calls, BB checks
+  t.applyAction('a', { type: 'call' })   // button completes to 20
+  t.applyAction('b', { type: 'check' })  // -> flop, seat1 first to act postflop
+  t.applyAction('b', { type: 'check' }); t.applyAction('a', { type: 'check' }) // -> turn
+  t.applyAction('b', { type: 'check' }); t.applyAction('a', { type: 'check' }) // -> river
+  t.applyAction('b', { type: 'check' }); t.applyAction('a', { type: 'check' }) // -> showdown
+  assert.strictEqual(t.phase, 'payout')
+  assert.deepStrictEqual(t.winners.map(w => w.id), ['a'])
+  assert.strictEqual(t.reveal, true)
+})
+
+test('a tie chops the pot evenly', () => {
+  const c = (rank, suit) => ({ rank, suit })
+  // both players hold irrelevant low cards and play the board's broadway straight
+  // (seat1 <- top[0],[2]; seat0 <- top[1],[3]) -> both make the same A-high straight
+  // board: T♠ J♥ Q♦ K♣ A♠
+  const top = [
+    c(2, 'Spades'), c(2, 'Diamonds'),
+    c(3, 'Hearts'), c(3, 'Clubs'),
+    c(10, 'Spades'), c(11, 'Hearts'), c(12, 'Diamonds'),
+    c(13, 'Clubs'),
+    c(14, 'Spades'),
+  ]
+  const { Deck } = require('../game/cards')
+  const rest = new Deck().cards.filter(x => !top.some(tt => tt.rank === x.rank && tt.suit === x.suit))
+  const t = new PokerTable({ smallBlind: 10, bigBlind: 20 })
+  t.sit('a', 'Alice'); t.sit('b', 'Bob')
+  t.startHand(new Deck([...top, ...rest]))
+  t.applyAction('a', { type: 'call' }); t.applyAction('b', { type: 'check' })
+  t.applyAction('b', { type: 'check' }); t.applyAction('a', { type: 'check' })
+  t.applyAction('b', { type: 'check' }); t.applyAction('a', { type: 'check' })
+  t.applyAction('b', { type: 'check' }); t.applyAction('a', { type: 'check' })
+  assert.strictEqual(t.winners.length, 2)
+  assert.strictEqual(t.seats[0].stack, 1500) // each got their 20 back
+  assert.strictEqual(t.seats[1].stack, 1500)
+})

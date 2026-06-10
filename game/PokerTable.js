@@ -216,8 +216,8 @@ class PokerTable {
     return -1
   }
 
-  // --- replaced in Task 7 ---
   nextStreet() {
+    // sweep street bets into the pot
     for (const i of this.occupiedSeats()) {
       this.pot += this.seats[i].bet
       this.seats[i].bet = 0
@@ -225,19 +225,57 @@ class PokerTable {
     }
     this.currentBet = 0
     this.minRaise = this.bigBlind
+
     const order = ['preflop', 'flop', 'turn', 'river', 'showdown']
     const next = order[order.indexOf(this.phase) + 1]
     this.phase = next
+
     if (next === 'flop') this.board.push(...this.deck.draw(3))
     else if (next === 'turn' || next === 'river') this.board.push(...this.deck.draw(1))
-    if (next !== 'showdown') this.toActSeat = this.nextToAct(this.buttonSeat)
+
+    if (next === 'showdown') { this.showdown(); return }
+
+    // if at most one player can still act (rest all-in), deal out the rest
+    const actionable = this.occupiedSeats()
+      .map(i => this.seats[i])
+      .filter(p => !p.folded && !p.allIn)
+    if (actionable.length <= 1) { this.nextStreet(); return }
+
+    this.toActSeat = this.nextToAct(this.buttonSeat)
+  }
+
+  showdown() {
+    this.phase = 'showdown'
+    this.reveal = true
+    const live = this.occupiedSeats()
+      .map(i => this.seats[i])
+      .filter(p => !p.folded)
+    const scored = live.map(p => ({ p, score: evaluateBest([...p.holeCards, ...this.board]) }))
+    let best = scored[0].score
+    for (const s of scored) if (compareScores(s.score, best) > 0) best = s.score
+    const winners = scored.filter(s => compareScores(s.score, best) === 0).map(s => s.p)
+    this.payout(winners)
   }
 
   awardToLastPlayer(seat) {
     for (const i of this.occupiedSeats()) { this.pot += this.seats[i].bet; this.seats[i].bet = 0 }
-    const w = this.seats[seat]
-    w.stack += this.pot
-    this.winners = [{ id: w.id, username: w.username }]
+    this.reveal = false
+    this.payout([this.seats[seat]])
+  }
+
+  payout(winners) {
+    const share = Math.floor(this.pot / winners.length)
+    let remainder = this.pot - share * winners.length
+    // pay in seat order from left of button so the odd chip goes to the
+    // first winner left of the button
+    const ordered = this.seatsClockwiseFrom(this.buttonSeat)
+      .map(i => this.seats[i])
+      .filter(p => winners.includes(p))
+    for (const w of ordered) {
+      w.stack += share
+      if (remainder > 0) { w.stack += 1; remainder-- }
+    }
+    this.winners = ordered.map(w => ({ id: w.id, username: w.username }))
     this.pot = 0
     this.phase = 'payout'
   }
