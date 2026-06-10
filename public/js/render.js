@@ -17,7 +17,8 @@ function cardEl(card) {
 function seatPosition(idx, selfSeat, numSeats) {
   const rel = ((idx - selfSeat) % numSeats + numSeats) % numSeats
   const angle = Math.PI / 2 + (2 * Math.PI * rel) / numSeats // self at bottom
-  const cx = 50, cy = 52, rx = 38, ry = 40 // percentages
+  // ry kept tight so the bottom (self) seat clears the action bar at the very bottom
+  const cx = 50, cy = 47, rx = 40, ry = 36 // percentages
   return { x: cx + rx * Math.cos(angle), y: cy + ry * Math.sin(angle) }
 }
 
