@@ -39,4 +39,38 @@ function score5(cards) {
   return { category: CATEGORY.HIGH_CARD, tiebreakers: ranks }
 }
 
-module.exports = { CATEGORY, CATEGORY_NAMES, score5 }
+// Returns >0 if a beats b, <0 if b beats a, 0 if tied.
+function compareScores(a, b) {
+  if (a.category !== b.category) return a.category - b.category
+  const len = Math.max(a.tiebreakers.length, b.tiebreakers.length)
+  for (let i = 0; i < len; i++) {
+    const diff = (a.tiebreakers[i] || 0) - (b.tiebreakers[i] || 0)
+    if (diff !== 0) return diff
+  }
+  return 0
+}
+
+function* combinations(arr, k) {
+  const n = arr.length
+  const idx = Array.from({ length: k }, (_, i) => i)
+  while (true) {
+    yield idx.map(i => arr[i])
+    let i = k - 1
+    while (i >= 0 && idx[i] === i + n - k) i--
+    if (i < 0) return
+    idx[i]++
+    for (let j = i + 1; j < k; j++) idx[j] = idx[j - 1] + 1
+  }
+}
+
+// Best 5-card hand from 5,6, or 7 cards. Returns { category, tiebreakers, name }.
+function evaluateBest(cards) {
+  let best = null
+  for (const combo of combinations(cards, 5)) {
+    const s = score5(combo)
+    if (!best || compareScores(s, best) > 0) best = s
+  }
+  return { ...best, name: CATEGORY_NAMES[best.category] }
+}
+
+module.exports = { CATEGORY, CATEGORY_NAMES, score5, compareScores, evaluateBest }
