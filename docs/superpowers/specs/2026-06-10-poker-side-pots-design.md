@@ -118,6 +118,12 @@ This handles the cases that matter without special-casing:
 
 ### The one edge it forces: `leave()`
 
+> **Superseded during planning.** The seat-retention design below was replaced by
+> a simpler "dead money" mechanism (departed chips = `this.pot − sum of seated
+> committed`, added to the main pot) — see the Design note in
+> `docs/superpowers/plans/2026-06-10-poker-side-pots.md`. `leave()` was left
+> unchanged. The goal (departed contributions never vanish) is still met.
+
 Today `leave()` during a live hand sweeps the player's street `bet` into the pot
 and nulls the seat. Nulling drops their `committed` from the snapshot, so their
 contributed chips would vanish from the side-pot math.
