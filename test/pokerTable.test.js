@@ -195,3 +195,94 @@ test('getStateFor reveals live opponents at showdown', () => {
   const other = view.seats.find(s => s && !s.isSelf)
   assert.ok(Array.isArray(other.holeCards) && other.holeCards.length === 2)
 })
+
+// ---- BUG 1: leave() during a live hand ----
+
+test('leave while waiting frees the seat', () => {
+  const t = new PokerTable()
+  t.sit('a', 'Alice') // seat 0
+  t.sit('b', 'Bob')   // seat 1
+  // no hand started — phase is 'waiting'
+  t.leave('a')
+  assert.strictEqual(t.seats[0], null)
+  // a new player can take the freed seat
+  const newSeat = t.sit('z', 'Zara')
+  assert.strictEqual(newSeat, 0)
+})
+
+test('leaver was to act (3-handed) — hand does NOT freeze', () => {
+  const t = new PokerTable({ smallBlind: 10, bigBlind: 20 })
+  t.sit('a', 'Alice') // seat 0 — button, UTG (toActSeat preflop)
+  t.sit('b', 'Bob')   // seat 1 — SB
+  t.sit('c', 'Carol') // seat 2 — BB
+  t.startHand(new Deck().shuffle(() => 0))
+  // seat 0 (UTG) is toActSeat
+  assert.strictEqual(t.toActSeat, 0)
+  t.leave('a') // UTG leaves while it is their turn
+  // toActSeat must point at a live, non-null, non-folded seat
+  assert.ok(t.toActSeat !== -1, 'toActSeat must be valid')
+  assert.ok(t.seats[t.toActSeat] !== null, 'toActSeat seat must not be null')
+  assert.ok(!t.seats[t.toActSeat].folded, 'toActSeat player must not be folded')
+  // the remaining player must be able to act without throwing
+  const actingId = t.seats[t.toActSeat].id
+  assert.doesNotThrow(() => t.applyAction(actingId, { type: 'fold' }))
+})
+
+test('chip conservation: leaver chips stay in the pot', () => {
+  const t = new PokerTable({ smallBlind: 10, bigBlind: 20 })
+  t.sit('a', 'Alice') // seat 0 — button
+  t.sit('b', 'Bob')   // seat 1 — SB
+  t.sit('c', 'Carol') // seat 2 — BB
+  t.startHand(new Deck().shuffle(() => 0))
+  // Bob (SB) has bet 10, Carol (BB) has bet 20; pot (via getStateFor) = 30
+  const potBefore = t.getStateFor('c').pot
+  assert.strictEqual(potBefore, 30)
+  // SB (Bob) leaves mid-hand
+  t.leave('b')
+  // Bob's 10 posted chips must still be in the effective pot
+  const potAfter = t.getStateFor('c').pot
+  assert.strictEqual(potAfter, 30)
+})
+
+test('heads-up: opponent leaves mid-hand → remaining player wins', () => {
+  const t = new PokerTable({ smallBlind: 10, bigBlind: 20 })
+  t.sit('a', 'Alice') // seat 0 — button / SB heads-up
+  t.sit('b', 'Bob')   // seat 1 — BB
+  t.startHand(new Deck().shuffle(() => 0))
+  const aliceStackBefore = t.seats[0].stack // 1490 (posted 10)
+  // Bob leaves while the hand is live
+  t.leave('b')
+  assert.strictEqual(t.phase, 'payout')
+  assert.deepStrictEqual(t.winners.map(w => w.id), ['a'])
+  // Alice should have gotten the pot (10 + 20 = 30) added to her remaining stack
+  assert.strictEqual(t.seats[0].stack, aliceStackBefore + 30)
+})
+
+test('removed player is not dealt into the next hand', () => {
+  const t = new PokerTable({ smallBlind: 10, bigBlind: 20 })
+  t.sit('a', 'Alice') // seat 0
+  t.sit('b', 'Bob')   // seat 1
+  t.sit('c', 'Carol') // seat 2
+  t.startHand(new Deck().shuffle(() => 0))
+  // Carol (BB, seat 2) leaves mid-hand
+  t.leave('c')
+  // Force the hand to end: the remaining two fold/act until hand concludes
+  // After Carol (BB) leaves, action should continue; UTG (seat0) acts
+  // Let whoever is toActSeat fold until payout
+  while (t.phase !== 'payout') {
+    const seat = t.toActSeat
+    if (seat === -1) break
+    const id = t.seats[seat].id
+    t.applyAction(id, { type: 'fold' })
+  }
+  // Start a new hand — Carol should not be seated
+  assert.strictEqual(t.findSeatById('c'), -1)
+  t.startHand(new Deck().shuffle(() => 0))
+  // Only Alice and Bob should have hole cards; Carol's seat is null
+  assert.strictEqual(t.seats[2], null)
+  const occ = t.occupiedSeats()
+  assert.strictEqual(occ.length, 2)
+  for (const i of occ) {
+    assert.strictEqual(t.seats[i].holeCards.length, 2)
+  }
+})

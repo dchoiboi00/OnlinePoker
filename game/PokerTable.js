@@ -41,7 +41,51 @@ class PokerTable {
 
   leave(id) {
     const seat = this.findSeatById(id)
-    if (seat !== -1) this.seats[seat] = null
+    if (seat === -1) return  // player not seated, nothing to do
+
+    const handLive = this.phase !== 'waiting' && this.phase !== 'payout'
+
+    if (!handLive) {
+      // No active hand — just free the seat.
+      this.seats[seat] = null
+      return
+    }
+
+    // Hand is live: sweep the leaver's current street bet into the pot so chips
+    // are never lost, then remove them from the seat.
+    const p = this.seats[seat]
+    this.pot += p.bet
+    p.bet = 0
+    this.seats[seat] = null
+
+    // Check how many occupied (and non-folded) seats remain.
+    const occupied = this.occupiedSeats()
+    const contenders = occupied.filter(i => !this.seats[i].folded)
+
+    if (occupied.length === 0) {
+      // Everyone left — nothing left to do.
+      this.phase = 'payout'
+      return
+    }
+
+    if (contenders.length === 1) {
+      // Only one non-folded player remains — they win.
+      this.awardToLastPlayer(contenders[0])
+      return
+    }
+
+    // More than one contender remains.  Fix up toActSeat if necessary, then
+    // check whether the betting round is now complete.
+    if (this.toActSeat === seat) {
+      // It was the leaver's turn — move action to the next live seat.
+      const next = this.nextToAct(seat)
+      this.toActSeat = next
+    }
+
+    // Whether or not it was their turn, leaving may have completed the round.
+    if (this.bettingRoundComplete()) {
+      this.nextStreet()
+    }
   }
 
   findSeatById(id) { return this.seats.findIndex(s => s && s.id === id) }
