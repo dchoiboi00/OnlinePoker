@@ -1,0 +1,90 @@
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: system-ui, sans-serif;
+  background: #0b132b;
+  color: #e7ecef;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+#table {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+}
+
+#center {
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: 46%; height: 44%;
+  background: #157347;
+  border: 12px solid #6b4423;
+  border-radius: 50% / 50%;
+  box-shadow: inset 0 0 80px rgba(0,0,0,.45);
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 10px;
+}
+#pot { color: #ffd166; font-weight: 700; letter-spacing: .5px; }
+#community { display: flex; gap: 6px; }
+#result { color: #ffd166; font-weight: 700; min-height: 20px; text-align: center; }
+
+/* seats are absolutely positioned by JS via --x/--y custom props */
+.seat {
+  position: absolute;
+  left: var(--x); top: var(--y);
+  transform: translate(-50%, -50%);
+  text-align: center;
+  width: 120px;
+}
+.seat.active .nameplate { box-shadow: 0 0 14px #ffd166; background: #ffd166; color: #111; }
+.seat.folded { opacity: .4; }
+.nameplate {
+  background: #1c2541; padding: 4px 10px; border-radius: 12px;
+  font-size: 12px; font-weight: 600;
+}
+.seat .hole { display: flex; gap: 3px; justify-content: center; margin-bottom: 4px; }
+.seat .bet { color: #9bf6ff; font-size: 12px; min-height: 14px; }
+.button-chip {
+  display: inline-block; width: 16px; height: 16px; line-height: 16px;
+  background: #fff; color: #111; border-radius: 50%; font-size: 10px; font-weight: 700;
+}
+
+.card {
+  width: 34px; height: 48px; background: #fff; border-radius: 4px;
+  display: flex; align-items: center; justify-content: center;
+  font: 700 15px serif; color: #111;
+}
+.card.red { color: #c00; }
+.card.back { background: #1d4ed8; border: 2px solid #fff; }
+#community .card { width: 42px; height: 60px; font-size: 18px; }
+
+#controls {
+  position: absolute; bottom: 18px; left: 50%; transform: translateX(-50%);
+  display: flex; gap: 10px; align-items: center;
+}
+#controls button {
+  padding: 10px 18px; border: none; border-radius: 100px;
+  color: #fff; font-weight: 700; cursor: pointer;
+}
+.btn-fold { background: #dc3545; }
+.btn-check, .btn-call { background: #6c757d; }
+.btn-raise, .btn-start { background: #198754; }
+#controls input[type=range] { width: 140px; }
+#raiseAmount { min-width: 48px; text-align: center; font-weight: 700; }
+
+#overlay {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  background: rgba(11,19,43,.85);
+}
+#usernameForm { display: flex; flex-direction: column; gap: 10px; }
+#usernameInput {
+  padding: 12px; border-radius: 20px; border: none; background: #1c2541; color: #e7ecef;
+}
+#usernameForm button {
+  padding: 10px 20px; border: none; border-radius: 100px; cursor: pointer;
+  color: #fff; background-image: linear-gradient(to right, #06b6d4, #3b82f6);
+}
+.hidden { display: none !important; }
