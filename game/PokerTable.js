@@ -135,6 +135,112 @@ class PokerTable {
       maxRaiseTo,
     }
   }
+
+  commit(p, amount) {
+    const amt = Math.min(amount, p.stack)
+    p.stack -= amt
+    p.bet += amt
+    p.committed += amt
+    if (p.stack === 0) p.allIn = true
+  }
+
+  applyAction(id, action) {
+    const seat = this.findSeatById(id)
+    if (seat !== this.toActSeat) throw new Error('Not your turn')
+    const p = this.seats[seat]
+    const toCall = this.currentBet - p.bet
+
+    switch (action.type) {
+      case 'fold':
+        p.folded = true
+        break
+      case 'check':
+        if (toCall !== 0) throw new Error('Cannot check facing a bet')
+        break
+      case 'call':
+        this.commit(p, Math.min(toCall, p.stack))
+        break
+      case 'bet':
+      case 'raise': {
+        const target = action.amount
+        const maxTo = p.bet + p.stack
+        if (typeof target !== 'number') throw new Error('Raise needs an amount')
+        if (target > maxTo) throw new Error('Raise exceeds stack')
+        if (target <= this.currentBet) throw new Error('Raise must exceed the current bet')
+        const isAllIn = target === maxTo
+        const minTo = this.currentBet + this.minRaise
+        if (!isAllIn && target < minTo) throw new Error('Raise below the minimum')
+        const raiseSize = target - this.currentBet
+        this.commit(p, target - p.bet)
+        this.minRaise = Math.max(this.minRaise, raiseSize)
+        this.currentBet = target
+        // a raise reopens action for everyone still live
+        for (const i of this.occupiedSeats()) {
+          const q = this.seats[i]
+          if (i !== seat && !q.folded && !q.allIn) q.hasActed = false
+        }
+        break
+      }
+      default:
+        throw new Error('Unknown action: ' + action.type)
+    }
+
+    p.hasActed = true
+    this.advance()
+  }
+
+  advance() {
+    const live = this.occupiedSeats().filter(i => !this.seats[i].folded)
+    if (live.length === 1) {
+      this.awardToLastPlayer(live[0])
+      return
+    }
+    if (this.bettingRoundComplete()) {
+      this.nextStreet()
+      return
+    }
+    this.toActSeat = this.nextToAct(this.toActSeat)
+  }
+
+  bettingRoundComplete() {
+    const live = this.occupiedSeats().map(i => this.seats[i]).filter(p => !p.folded)
+    const actionable = live.filter(p => !p.allIn)
+    return actionable.every(p => p.hasActed && p.bet === this.currentBet)
+  }
+
+  nextToAct(fromSeat) {
+    for (const i of this.seatsClockwiseFrom(fromSeat)) {
+      const p = this.seats[i]
+      if (!p.folded && !p.allIn) return i
+    }
+    return -1
+  }
+
+  // --- replaced in Task 7 ---
+  nextStreet() {
+    for (const i of this.occupiedSeats()) {
+      this.pot += this.seats[i].bet
+      this.seats[i].bet = 0
+      this.seats[i].hasActed = false
+    }
+    this.currentBet = 0
+    this.minRaise = this.bigBlind
+    const order = ['preflop', 'flop', 'turn', 'river', 'showdown']
+    const next = order[order.indexOf(this.phase) + 1]
+    this.phase = next
+    if (next === 'flop') this.board.push(...this.deck.draw(3))
+    else if (next === 'turn' || next === 'river') this.board.push(...this.deck.draw(1))
+    if (next !== 'showdown') this.toActSeat = this.nextToAct(this.buttonSeat)
+  }
+
+  awardToLastPlayer(seat) {
+    for (const i of this.occupiedSeats()) { this.pot += this.seats[i].bet; this.seats[i].bet = 0 }
+    const w = this.seats[seat]
+    w.stack += this.pot
+    this.winners = [{ id: w.id, username: w.username }]
+    this.pot = 0
+    this.phase = 'payout'
+  }
 }
 
 module.exports = { PokerTable, NUM_SEATS }

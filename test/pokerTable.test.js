@@ -74,3 +74,39 @@ test('legalActions returns null when it is not your turn', () => {
   t.startHand(new Deck().shuffle(() => 0))
   assert.strictEqual(t.legalActions('b'), null) // seat 1 is not to act
 })
+
+test('everyone folds to one player -> immediate win, pot awarded', () => {
+  const t = new PokerTable({ smallBlind: 10, bigBlind: 20 })
+  t.sit('a', 'Alice'); t.sit('b', 'Bob'); t.sit('c', 'Carol')
+  t.startHand(new Deck().shuffle(() => 0))
+  // seat0 UTG folds, seat1 (SB) folds -> seat2 (BB) wins
+  t.applyAction('a', { type: 'fold' })
+  t.applyAction('b', { type: 'fold' })
+  assert.strictEqual(t.phase, 'payout')
+  assert.deepStrictEqual(t.winners.map(w => w.id), ['c'])
+  // BB posted 20 (stack 1480), wins the 10+20 pot -> 1510
+  assert.strictEqual(t.seats[2].stack, 1480 + 30)
+})
+
+test('rejects a check when facing a bet, and a raise below the minimum', () => {
+  const t = new PokerTable({ smallBlind: 10, bigBlind: 20 })
+  t.sit('a', 'Alice'); t.sit('b', 'Bob'); t.sit('c', 'Carol')
+  t.startHand(new Deck().shuffle(() => 0))
+  assert.throws(() => t.applyAction('a', { type: 'check' }), /check/i)
+  assert.throws(() => t.applyAction('a', { type: 'raise', amount: 30 }), /minimum/i)
+})
+
+test('calling around preflop closes the round and deals the flop', () => {
+  const t = new PokerTable({ smallBlind: 10, bigBlind: 20 })
+  t.sit('a', 'Alice'); t.sit('b', 'Bob'); t.sit('c', 'Carol')
+  t.startHand(new Deck().shuffle(() => 0))
+  t.applyAction('a', { type: 'call' })  // UTG calls 20
+  t.applyAction('b', { type: 'call' })  // SB completes to 20
+  t.applyAction('c', { type: 'check' }) // BB checks option
+  assert.strictEqual(t.phase, 'flop')
+  assert.strictEqual(t.board.length, 3)
+  assert.strictEqual(t.pot, 60)
+  assert.strictEqual(t.currentBet, 0)
+  // postflop first to act is first seat left of button = SB seat 1
+  assert.strictEqual(t.toActSeat, 1)
+})
