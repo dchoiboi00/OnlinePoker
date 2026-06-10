@@ -1,87 +1,76 @@
-const canvas = document.querySelector('canvas')
-const c = canvas.getContext('2d')
-
-// draw table
-const img = new Image()
-img.src = "/img/table.jpeg"
-function drawImage() {
-    canvas.width = window.innerWidth
-    canvas.height = window.innerHeight
-
-    var scaleWidth = canvas.width / img.width;
-    var scaleHeight = canvas.height / img.height;
-    var scale = Math.max(scaleWidth, scaleHeight);
-
-    // Calculate the dimensions to keep the aspect ratio
-    var newWidth = img.width * scale;
-    var newHeight = img.height * scale;
-
-    // Calculate the centering position
-    var x = (canvas.width - newWidth) / 2;
-    var y = (canvas.height - newHeight) / 2;
-
-    c.drawImage(img, x, y, newWidth, newHeight)
-}
-img.onload = () => {
-    drawImage()
-}
-window.addEventListener('resize', drawImage)
-
 const socket = io()
+let latestState = null
 
-const devicePixelRatio = window.devicePixelRatio || 1
-
-const frontEndPlayers = {}
-var frontEndDeck = new Deck()
-
-socket.on('updateDeck', (backEndDeck) => {
-    frontEndDeck = backEndDeck
-    console.log("Front end deck:", frontEndDeck)
+socket.on('gameState', (state) => {
+  latestState = state
+  renderTable(state)
+  renderControls(state)
 })
 
-socket.on('updatePlayers', (backEndPlayers) => {
-    for (const id in backEndPlayers) {
-        const backEndPlayer = backEndPlayers[id]
-
-        // if we see new player
-        if (!frontEndPlayers[id]){
-            frontEndPlayers[id] = new Player({
-                seat: backEndPlayer.seat,
-                username: backEndPlayer.username
-            })
-        }
-
-    }
-    for (const id in frontEndPlayers) {
-        if (!backEndPlayers[id]){
-            delete frontEndPlayers[id]
-        }
-    }
-
-    console.log("Front end players:", frontEndPlayers)
+socket.on('errorMsg', (msg) => {
+  const result = document.getElementById('result')
+  result.textContent = msg
 })
 
-// Animation
+function emitAction(action) { socket.emit('action', action) }
 
-let animationId
-function animate() {
-    animationId = requestAnimationFrame(animate)
+function renderControls(state) {
+  const bar = document.getElementById('controls')
+  bar.replaceChildren()
 
+  const seated = state.seats.some(s => s && s.isSelf)
+  const handLive = state.phase !== 'waiting' && state.phase !== 'payout'
 
-    for (const id in frontEndPlayers) {
-        const frontEndPlayer = frontEndPlayers[id]
+  // Start Hand button: shown when seated and no hand in progress
+  if (seated && !handLive) {
+    const start = document.createElement('button')
+    start.className = 'btn-start'
+    start.textContent = 'Start Hand'
+    start.onclick = () => socket.emit('startHand')
+    bar.append(start)
+  }
 
-        frontEndPlayer.draw()
-    }
+  const la = state.legalActions
+  if (!la) return // not our turn (or not seated)
 
+  const fold = document.createElement('button')
+  fold.className = 'btn-fold'; fold.textContent = 'Fold'
+  fold.onclick = () => emitAction({ type: 'fold' })
+  bar.append(fold)
+
+  if (la.canCheck) {
+    const check = document.createElement('button')
+    check.className = 'btn-check'; check.textContent = 'Check'
+    check.onclick = () => emitAction({ type: 'check' })
+    bar.append(check)
+  }
+  if (la.canCall) {
+    const call = document.createElement('button')
+    call.className = 'btn-call'; call.textContent = `Call $${la.callAmount}`
+    call.onclick = () => emitAction({ type: 'call' })
+    bar.append(call)
+  }
+  if (la.canRaise) {
+    const slider = document.createElement('input')
+    slider.type = 'range'
+    slider.min = String(la.minRaiseTo)
+    slider.max = String(la.maxRaiseTo)
+    slider.value = String(la.minRaiseTo)
+
+    const amount = document.createElement('span')
+    amount.id = 'raiseAmount'
+    amount.textContent = `$${la.minRaiseTo}`
+    slider.oninput = () => { amount.textContent = `$${slider.value}` }
+
+    const raise = document.createElement('button')
+    raise.className = 'btn-raise'
+    raise.textContent = state.currentBet > 0 ? 'Raise' : 'Bet'
+    raise.onclick = () => emitAction({
+      type: state.currentBet > 0 ? 'raise' : 'bet',
+      amount: Number(slider.value),
+    })
+    bar.append(slider, amount, raise)
+  }
 }
 
-animate()
-
-document.querySelector('#usernameForm').addEventListener('submit', (event) => {
-    event.preventDefault()
-    document.querySelector('#usernameForm').style.display = 'none'
-    socket.emit('initGame', {
-      username: document.querySelector('#usernameInput').value
-    })
-  })
+window.renderControls = renderControls
