@@ -286,3 +286,78 @@ test('removed player is not dealt into the next hand', () => {
     assert.strictEqual(t.seats[i].holeCards.length, 2)
   }
 })
+
+test('short all-in wins only the main pot; the rest goes to the side pot', () => {
+  const c = (rank, suit) => ({ rank, suit })
+  // Deal order (button=seat0): round1 seat1,seat2,seat0 ; round2 seat1,seat2,seat0
+  //   seat1 (Bob) folds preflop, so his cards are irrelevant.
+  //   seat2 (Carol) = A♥ Q♥  -> makes the nut flush, the BEST hand
+  //   seat0 (Alice) = K♦ K♠  -> pair of kings
+  //   board: 5♥ 9♥ 2♥ 7♦ 8♣  -> three hearts complete Carol's flush
+  const top = [
+    c(2, 'Clubs'),  c(14, 'Hearts'), c(13, 'Diamonds'), // r1: Bob, Carol, Alice
+    c(3, 'Clubs'),  c(12, 'Hearts'), c(13, 'Spades'),   // r2: Bob, Carol, Alice
+    c(5, 'Hearts'), c(9, 'Hearts'), c(2, 'Hearts'),     // flop
+    c(7, 'Diamonds'),                                    // turn
+    c(8, 'Clubs'),                                       // river
+  ]
+  const rest = new Deck().cards.filter(
+    x => !top.some(t => t.rank === x.rank && t.suit === x.suit))
+  const t = new PokerTable({ smallBlind: 10, bigBlind: 20, startingStack: 1500 })
+  t.sit('a', 'Alice') // seat 0 — button (UTG 3-handed)
+  t.sit('b', 'Bob')   // seat 1 — SB
+  t.sit('c', 'Carol') // seat 2 — BB
+  t.startHand(new Deck([...top, ...rest]))
+
+  // make Carol short: 20 already posted as BB, leave her only 80 behind
+  t.seats[2].stack = 80
+
+  t.applyAction('a', { type: 'raise', amount: 200 }) // Alice raises to 200
+  t.applyAction('b', { type: 'fold' })               // Bob folds (committed 10)
+  t.applyAction('c', { type: 'call' })               // Carol all-in for 100 total
+
+  assert.strictEqual(t.phase, 'payout')
+  // main pot = 100 from Alice + 100 from Carol + Bob's 10 = 210, won by Carol (flush)
+  assert.strictEqual(t.seats[2].stack, 210)
+  // side pot = Alice's uncalled 100, returned to Alice (1500 - 200 + 100)
+  assert.strictEqual(t.seats[0].stack, 1400)
+  // Bob folded his small blind
+  assert.strictEqual(t.seats[1].stack, 1490)
+  // both Alice and Carol are credited as winners (of different pots)
+  assert.deepStrictEqual(t.winners.map(w => w.id).sort(), ['a', 'c'])
+})
+
+test('a player leaving mid-hand leaves no chips behind at showdown', () => {
+  const t = new PokerTable({ smallBlind: 10, bigBlind: 20 })
+  t.sit('a', 'Alice'); t.sit('b', 'Bob'); t.sit('c', 'Carol')
+  t.startHand(new Deck().shuffle(() => 0.5))
+  // everyone limps in preflop
+  t.applyAction('a', { type: 'call' })   // UTG calls 20
+  t.applyAction('b', { type: 'call' })   // SB completes
+  t.applyAction('c', { type: 'check' })  // BB checks -> flop
+
+  // Carol leaves on the flop; Alice and Bob remain
+  t.leave('c')
+
+  // capture all chips in play among the remaining players (stacks + live pot)
+  const remaining = ['a', 'b']
+  const before = remaining.reduce(
+    (sum, id) => sum + t.seats[t.findSeatById(id)].stack, 0) + t.getStateFor('a').pot
+
+  // Alice and Bob check it down to showdown
+  let guard = 0
+  while (t.phase !== 'payout' && guard++ < 20) {
+    const seat = t.toActSeat
+    if (seat === -1) break
+    const id = t.seats[seat].id
+    const la = t.legalActions(id)
+    t.applyAction(id, la.canCheck ? { type: 'check' } : { type: 'call' })
+  }
+
+  assert.strictEqual(t.phase, 'payout')
+  assert.strictEqual(t.pot, 0)
+  // every chip that was in play (including Carol's dead money) ended up with a,b
+  const after = remaining.reduce(
+    (sum, id) => sum + t.seats[t.findSeatById(id)].stack, 0)
+  assert.strictEqual(after, before)
+})

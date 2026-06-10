@@ -1,5 +1,6 @@
 const { Deck } = require('./cards')
 const { evaluateBest, compareScores } = require('./handEvaluator')
+const { buildPots } = require('./sidePots')
 
 const NUM_SEATS = 7
 
@@ -295,37 +296,95 @@ class PokerTable {
   showdown() {
     this.phase = 'showdown'
     this.reveal = true
-    const live = this.occupiedSeats()
-      .map(i => this.seats[i])
-      .filter(p => !p.folded)
-    const scored = live.map(p => ({ p, score: evaluateBest([...p.holeCards, ...this.board]) }))
-    let best = scored[0].score
-    for (const s of scored) if (compareScores(s.score, best) > 0) best = s.score
-    const winners = scored.filter(s => compareScores(s.score, best) === 0).map(s => s.p)
-    this.payout(winners)
+    // score each non-folded player's best hand once
+    const scoreById = new Map()
+    for (const i of this.occupiedSeats()) {
+      const p = this.seats[i]
+      if (!p.folded) scoreById.set(p.id, evaluateBest([...p.holeCards, ...this.board]))
+    }
+    this.settlePots(scoreById)
   }
 
   awardToLastPlayer(seat) {
+    // everyone else folded or left — the lone contender takes the whole pot,
+    // including any dead money. No side pots are possible with one contender.
     for (const i of this.occupiedSeats()) { this.pot += this.seats[i].bet; this.seats[i].bet = 0 }
     this.reveal = false
-    this.payout([this.seats[seat]])
+    const w = this.seats[seat]
+    w.stack += this.pot
+    this.winners = [{ id: w.id, username: w.username }]
+    this.pot = 0
+    this.phase = 'payout'
   }
 
-  payout(winners) {
-    const share = Math.floor(this.pot / winners.length)
-    let remainder = this.pot - share * winners.length
-    // pay in seat order from left of button so the odd chip goes to the
-    // first winner left of the button
+  settlePots(scoreById) {
+    // contributions from players still seated (folded players included)
+    const contributors = this.occupiedSeats()
+      .map(i => this.seats[i])
+      .filter(p => p.committed > 0)
+      .map(p => ({ id: p.id, committed: p.committed, folded: p.folded }))
+    const pots = buildPots(contributors)
+
+    // chips from players who left mid-hand are in this.pot but not in any
+    // seated player's committed total — fold them into the main pot
+    const seatedTotal = contributors.reduce((sum, c) => sum + c.committed, 0)
+    const deadMoney = this.pot - seatedTotal
+    if (deadMoney > 0) {
+      if (pots.length === 0) {
+        const stillIn = this.occupiedSeats()
+          .map(i => this.seats[i]).filter(p => !p.folded).map(p => p.id)
+        pots.push({ amount: deadMoney, eligibleIds: stillIn })
+      } else {
+        pots[0].amount += deadMoney
+      }
+    }
+
+    const winnerIds = new Set()
+    // award top tier downward; an empty (no eligible winner) tier rolls its
+    // chips down onto the next lower tier that does have winners
+    let rollDown = 0
+    for (let k = pots.length - 1; k >= 0; k--) {
+      const amount = pots[k].amount + rollDown
+      const eligible = pots[k].eligibleIds
+      if (eligible.length === 0) { rollDown = amount; continue }
+      rollDown = 0
+
+      let recipients
+      if (eligible.length === 1) {
+        recipients = eligible
+      } else {
+        let best = null
+        for (const id of eligible) {
+          const s = scoreById.get(id)
+          if (!best || compareScores(s, best) > 0) best = s
+        }
+        recipients = eligible.filter(id => compareScores(scoreById.get(id), best) === 0)
+      }
+      this.awardChips(amount, recipients)
+      recipients.forEach(id => winnerIds.add(id))
+    }
+
+    this.winners = [...winnerIds].map(id => {
+      const p = this.seats[this.findSeatById(id)]
+      return { id: p.id, username: p.username }
+    })
+    this.pot = 0
+    this.phase = 'payout'
+  }
+
+  // Split `amount` among recipient ids, odd chip to the first eligible seat
+  // left of the button.
+  awardChips(amount, recipientIds) {
+    const ids = new Set(recipientIds)
     const ordered = this.seatsClockwiseFrom(this.buttonSeat)
       .map(i => this.seats[i])
-      .filter(p => winners.includes(p))
+      .filter(p => ids.has(p.id))
+    const share = Math.floor(amount / ordered.length)
+    let remainder = amount - share * ordered.length
     for (const w of ordered) {
       w.stack += share
       if (remainder > 0) { w.stack += 1; remainder-- }
     }
-    this.winners = ordered.map(w => ({ id: w.id, username: w.username }))
-    this.pot = 0
-    this.phase = 'payout'
   }
 
   getStateFor(id) {
