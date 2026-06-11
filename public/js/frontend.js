@@ -21,13 +21,18 @@ function renderControls(state) {
   const seated = state.seats.some(s => s && s.isSelf)
   const handLive = state.phase !== 'waiting' && state.phase !== 'payout'
 
-  // Start Hand button: shown when seated and no hand in progress
+  // Context button: lobby -> Start Game, between hands -> Deal Next Hand,
+  // game over -> New Game.
   if (seated && !handLive) {
-    const start = document.createElement('button')
-    start.className = 'btn-start'
-    start.textContent = 'Start Hand'
-    start.onclick = () => socket.emit('startHand')
-    bar.append(start)
+    let label, event
+    if (state.gamePhase === 'lobby') { label = 'Start Game'; event = 'startGame' }
+    else if (state.gamePhase === 'over') { label = 'New Game'; event = 'newGame' }
+    else { label = 'Deal Next Hand'; event = 'dealHand' }
+    const btn = document.createElement('button')
+    btn.className = 'btn-start'
+    btn.textContent = label
+    btn.onclick = () => socket.emit(event)
+    bar.append(btn)
   }
 
   const la = state.legalActions
