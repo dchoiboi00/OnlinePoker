@@ -9,6 +9,7 @@ function newPlayer(id, username, stack) {
     id, username, stack,
     holeCards: [], bet: 0, committed: 0,
     folded: false, allIn: false, hasActed: false,
+    eliminated: false, finishPlace: null, waiting: false,
   }
 }
 
@@ -19,6 +20,7 @@ class PokerTable {
     this.bigBlind = bigBlind
     this.startingStack = startingStack
     this.phase = 'waiting'          // waiting|preflop|flop|turn|river|payout
+    this.gamePhase = 'lobby'         // lobby|playing|over
     this.board = []
     this.pot = 0
     this.currentBet = 0
@@ -36,7 +38,9 @@ class PokerTable {
     if (existing !== -1) return existing
     const seat = this.seats.findIndex(s => s === null)
     if (seat === -1) return -1
-    this.seats[seat] = newPlayer(id, username, this.startingStack)
+    const p = newPlayer(id, username, this.startingStack)
+    if (this.gamePhase !== 'lobby') p.waiting = true   // joins the next game
+    this.seats[seat] = p
     return seat
   }
 
@@ -49,6 +53,14 @@ class PokerTable {
     if (!handLive) {
       // No active hand — just free the seat.
       this.seats[seat] = null
+      // if a game is in progress and only one active player remains, end it
+      if (this.gamePhase === 'playing') {
+        const active = this.activeSeats()
+        if (active.length === 1) {
+          this.seats[active[0]].finishPlace = 1
+          this.gamePhase = 'over'
+        }
+      }
       return
     }
 
@@ -102,15 +114,54 @@ class PokerTable {
     return out
   }
 
-  // ---- start a hand ----
-  startHand(deck) {
-    const occ = this.occupiedSeats()
-    if (occ.length < 2) throw new Error('Need at least 2 players')
+  // Seated and able to play this game (not eliminated, not waiting to join).
+  activeSeats() {
+    return this.occupiedSeats().filter(i => {
+      const p = this.seats[i]
+      return !p.eliminated && !p.waiting
+    })
+  }
 
-    for (const i of occ) {
+  // Active seats clockwise, starting just AFTER `seat` (exclusive).
+  activeSeatsFrom(seat) {
+    return this.seatsClockwiseFrom(seat).filter(i => {
+      const p = this.seats[i]
+      return !p.eliminated && !p.waiting
+    })
+  }
+
+  // ---- start a tournament (assign stacks once) ----
+  startGame(deck) {
+    if (this.gamePhase !== 'lobby') throw new Error('Game already in progress')
+    const seated = this.occupiedSeats()
+    if (seated.length < 2) throw new Error('Need at least 2 players')
+    for (const i of seated) {
       Object.assign(this.seats[i], {
-        stack: this.startingStack, holeCards: [], bet: 0, committed: 0,
-        folded: false, allIn: false, hasActed: false,
+        stack: this.startingStack, eliminated: false, finishPlace: null, waiting: false,
+      })
+    }
+    this.gamePhase = 'playing'
+    this.buttonSeat = this.activeSeats()[0]
+    this._setupHand(deck)
+  }
+
+  // ---- deal the next hand of an in-progress game (stacks carry over) ----
+  dealHand(deck) {
+    if (this.gamePhase !== 'playing') throw new Error('No game in progress')
+    if (this.phase !== 'payout') throw new Error('Hand still in progress')
+    if (this.activeSeats().length < 2) throw new Error('Need at least 2 players')
+    this.buttonSeat = this.activeSeatsFrom(this.buttonSeat)[0]
+    this._setupHand(deck)
+  }
+
+  // shared per-hand setup: reset per-hand state, post blinds, deal, set first to act
+  _setupHand(deck) {
+    for (const i of this.occupiedSeats()) {
+      const p = this.seats[i]
+      const inactive = p.eliminated || p.waiting
+      Object.assign(p, {
+        holeCards: [], bet: 0, committed: 0,
+        folded: inactive, allIn: false, hasActed: false,
       })
     }
     this.board = []
@@ -119,21 +170,17 @@ class PokerTable {
     this.reveal = false
     this.deck = deck || new Deck().shuffle()
 
-    // advance / set the button
-    this.buttonSeat = this.buttonSeat === -1
-      ? occ[0]
-      : this.seatsClockwiseFrom(this.buttonSeat)[0]
-
-    const after = this.seatsClockwiseFrom(this.buttonSeat)
+    const active = this.activeSeats()
+    const after = this.activeSeatsFrom(this.buttonSeat)
     let sbSeat, bbSeat, firstToAct
-    if (occ.length === 2) {
+    if (active.length === 2) {
       sbSeat = this.buttonSeat
       bbSeat = after[0]
-      firstToAct = this.buttonSeat                    // button acts first preflop
+      firstToAct = this.buttonSeat
     } else {
       sbSeat = after[0]
       bbSeat = after[1]
-      firstToAct = this.seatsClockwiseFrom(bbSeat)[0] // UTG
+      firstToAct = this.activeSeatsFrom(bbSeat)[0]
     }
 
     this.postBlind(sbSeat, this.smallBlind)
@@ -141,9 +188,8 @@ class PokerTable {
     this.currentBet = this.bigBlind
     this.minRaise = this.bigBlind
 
-    // deal two rounds, starting left of the button
     for (let round = 0; round < 2; round++) {
-      for (const i of this.seatsClockwiseFrom(this.buttonSeat)) {
+      for (const i of this.activeSeatsFrom(this.buttonSeat)) {
         this.seats[i].holeCards.push(this.deck.draw(1)[0])
       }
     }
@@ -315,6 +361,7 @@ class PokerTable {
     this.winners = [{ id: w.id, username: w.username }]
     this.pot = 0
     this.phase = 'payout'
+    this._finishHand()
   }
 
   settlePots(scoreById) {
@@ -370,6 +417,7 @@ class PokerTable {
     })
     this.pot = 0
     this.phase = 'payout'
+    this._finishHand()
   }
 
   // Split `amount` among recipient ids, odd chip to the first eligible seat
@@ -387,12 +435,82 @@ class PokerTable {
     }
   }
 
+  // After a hand settles: eliminate broke players (with finishing places) and
+  // end the game if one player remains.
+  _finishHand() {
+    if (this.gamePhase !== 'playing') return
+    const wasActive = p => !p.eliminated && !p.waiting
+    const busted = this.occupiedSeats().map(i => this.seats[i])
+      .filter(p => wasActive(p) && p.stack === 0)
+    const survivors = this.occupiedSeats().map(i => this.seats[i])
+      .filter(p => wasActive(p) && p.stack > 0)
+
+    // bigger pre-hand stack (== committed for an all-in bust) finishes higher
+    busted.sort((a, b) => b.committed - a.committed)
+    let place = survivors.length + 1
+    for (const p of busted) {
+      p.eliminated = true
+      p.finishPlace = place
+      place++
+    }
+
+    if (survivors.length === 1) {
+      survivors[0].finishPlace = 1
+      this.gamePhase = 'over'
+    }
+  }
+
+  // From 'over': reset everyone and return to the lobby for a new game.
+  newGame() {
+    if (this.gamePhase !== 'over') throw new Error('Game is not over')
+    this.gamePhase = 'lobby'
+    this.phase = 'waiting'
+    for (const i of this.occupiedSeats()) {
+      Object.assign(this.seats[i], {
+        stack: this.startingStack, holeCards: [], bet: 0, committed: 0,
+        folded: false, allIn: false, hasActed: false,
+        eliminated: false, finishPlace: null, waiting: false,
+      })
+    }
+    this.board = []
+    this.pot = 0
+    this.winners = []
+    this.reveal = false
+    this.buttonSeat = -1
+    this.toActSeat = -1
+  }
+
+  // Live pot breakdown for display, labelled Main / Side / Side 2 ...
+  // Normally a single pot; only split into side pots once a player is all-in
+  // (otherwise unequal blinds/partial bets would show spurious side pots).
+  _displayPots() {
+    const liveBets = this.occupiedSeats().reduce((s, i) => s + this.seats[i].bet, 0)
+    const total = this.pot + liveBets
+    if (total === 0) return []
+    const anyAllIn = this.occupiedSeats().some(i => {
+      const p = this.seats[i]
+      return p.allIn && !p.eliminated
+    })
+    if (!anyAllIn) return [{ amount: total, label: 'Main' }]
+    const contributors = this.occupiedSeats()
+      .map(i => this.seats[i])
+      .filter(p => p.committed > 0)
+      .map(p => ({ id: p.id, committed: p.committed, folded: p.folded }))
+    const pots = buildPots(contributors)
+    return pots.map((pot, k) => ({
+      amount: pot.amount,
+      label: k === 0 ? 'Main' : (pots.length === 2 ? 'Side' : `Side ${k}`),
+    }))
+  }
+
   getStateFor(id) {
     const liveBets = this.occupiedSeats().reduce((sum, i) => sum + this.seats[i].bet, 0)
     return {
+      gamePhase: this.gamePhase,
       phase: this.phase,
       board: this.board,
       pot: this.pot + liveBets,
+      pots: this._displayPots(),
       currentBet: this.currentBet,
       buttonSeat: this.buttonSeat,
       toActSeat: this.toActSeat,
@@ -413,6 +531,9 @@ class PokerTable {
           bet: p.bet,
           folded: p.folded,
           allIn: p.allIn,
+          eliminated: p.eliminated,
+          finishPlace: p.finishPlace,
+          waiting: p.waiting,
           isSelf,
           holeCards,
         }

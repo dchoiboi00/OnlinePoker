@@ -130,6 +130,21 @@ try {
   await alice.page.screenshot({ path: join(SHOTS, 'alice-showdown.png') })
   await bob.page.screenshot({ path: join(SHOTS, 'bob-showdown.png') })
 
+  // --- second hand: stacks carry over, button moves, context button cycles ---
+  // the between-hands button should now read "Deal Next Hand"
+  const betweenLabel = await alice.page.$eval('#controls button.btn-start', b => b.textContent).catch(() => null)
+  chk('between hands shows "Deal Next Hand"', betweenLabel === 'Deal Next Hand')
+
+  await alice.page.click('#controls button.btn-start') // deal hand 2
+  await sleep(800)
+  const h2 = await snapshot(alice.page)
+  chk('hand 2 deals (back to a live hand)', h2.community === 0 && /\d/.test(h2.pot))
+  // stacks are no longer the fresh 1500/1500 — someone won hand 1
+  const stacks = await alice.page.evaluate(() =>
+    [...document.querySelectorAll('#seats .seat .nameplate')]
+      .map(n => Number((n.textContent.match(/\$(\d+)/) || [])[1])))
+  chk('stacks carried over (not reset to equal 1500)', stacks.length === 2 && stacks[0] !== stacks[1])
+
   const allErrors = [...alice.errors, ...bob.errors]
   chk('no browser JS errors', allErrors.length === 0)
   if (allErrors.length) log('  ERRORS:', allErrors.slice(0, 5))
