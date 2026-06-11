@@ -486,3 +486,35 @@ test('newGame returns to lobby and re-includes players', () => {
     assert.strictEqual(s.finishPlace, null)
   }
 })
+
+test('getStateFor exposes gamePhase and a pots breakdown', () => {
+  const t = new PokerTable({ smallBlind: 10, bigBlind: 20 })
+  t.sit('a', 'Alice'); t.sit('b', 'Bob'); t.sit('c', 'Carol')
+  const lobby = t.getStateFor('a')
+  assert.strictEqual(lobby.gamePhase, 'lobby')
+
+  t.startGame(new Deck().shuffle(() => 0))
+  const view = t.getStateFor('a')
+  assert.strictEqual(view.gamePhase, 'playing')
+  // blinds posted -> one main pot of 30
+  assert.ok(Array.isArray(view.pots))
+  assert.strictEqual(view.pots[0].label, 'Main')
+  assert.strictEqual(view.pots[0].amount, 30)
+})
+
+test('getStateFor reports eliminated/finishPlace and waiting joiners', () => {
+  const t = new PokerTable({ smallBlind: 10, bigBlind: 20 })
+  t.sit('a', 'Alice'); t.sit('b', 'Bob')
+  t.startGame(new Deck().shuffle(() => 0))
+  // someone joins mid-game -> waiting
+  const seat = t.sit('z', 'Zoe')
+  assert.ok(seat >= 0)
+  assert.strictEqual(t.seats[seat].waiting, true)
+  const view = t.getStateFor('a')
+  const zoe = view.seats[seat]
+  assert.strictEqual(zoe.waiting, true)
+  // self has eliminated=false, finishPlace=null
+  const me = view.seats.find(s => s && s.isSelf)
+  assert.strictEqual(me.eliminated, false)
+  assert.strictEqual(me.finishPlace, null)
+})

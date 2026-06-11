@@ -38,7 +38,9 @@ class PokerTable {
     if (existing !== -1) return existing
     const seat = this.seats.findIndex(s => s === null)
     if (seat === -1) return -1
-    this.seats[seat] = newPlayer(id, username, this.startingStack)
+    const p = newPlayer(id, username, this.startingStack)
+    if (this.gamePhase !== 'lobby') p.waiting = true   // joins the next game
+    this.seats[seat] = p
     return seat
   }
 
@@ -470,12 +472,37 @@ class PokerTable {
     this.toActSeat = -1
   }
 
+  // Live pot breakdown for display, labelled Main / Side / Side 2 ...
+  // Normally a single pot; only split into side pots once a player is all-in
+  // (otherwise unequal blinds/partial bets would show spurious side pots).
+  _displayPots() {
+    const liveBets = this.occupiedSeats().reduce((s, i) => s + this.seats[i].bet, 0)
+    const total = this.pot + liveBets
+    if (total === 0) return []
+    const anyAllIn = this.occupiedSeats().some(i => {
+      const p = this.seats[i]
+      return p.allIn && !p.eliminated
+    })
+    if (!anyAllIn) return [{ amount: total, label: 'Main' }]
+    const contributors = this.occupiedSeats()
+      .map(i => this.seats[i])
+      .filter(p => p.committed > 0)
+      .map(p => ({ id: p.id, committed: p.committed, folded: p.folded }))
+    const pots = buildPots(contributors)
+    return pots.map((pot, k) => ({
+      amount: pot.amount,
+      label: k === 0 ? 'Main' : (pots.length === 2 ? 'Side' : `Side ${k}`),
+    }))
+  }
+
   getStateFor(id) {
     const liveBets = this.occupiedSeats().reduce((sum, i) => sum + this.seats[i].bet, 0)
     return {
+      gamePhase: this.gamePhase,
       phase: this.phase,
       board: this.board,
       pot: this.pot + liveBets,
+      pots: this._displayPots(),
       currentBet: this.currentBet,
       buttonSeat: this.buttonSeat,
       toActSeat: this.toActSeat,
@@ -496,6 +523,9 @@ class PokerTable {
           bet: p.bet,
           folded: p.folded,
           allIn: p.allIn,
+          eliminated: p.eliminated,
+          finishPlace: p.finishPlace,
+          waiting: p.waiting,
           isSelf,
           holeCards,
         }
