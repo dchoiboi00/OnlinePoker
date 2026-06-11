@@ -407,3 +407,82 @@ test('dealHand before payout throws', () => {
   t.startGame(new Deck().shuffle(() => 0))
   assert.throws(() => t.dealHand(), /in progress/)
 })
+
+// Deck helper: stack the top cards, fill the rest with the remaining 52-set.
+function stacked(top) {
+  const rest = new Deck().cards.filter(
+    x => !top.some(c => c.rank === x.rank && c.suit === x.suit))
+  return new Deck([...top, ...rest])
+}
+
+test('a busted player is eliminated with a finishing place and skipped next hand', () => {
+  const c = (rank, suit) => ({ rank, suit })
+  // Deal order (button=seat0): r1 seat1,seat2,seat0 ; r2 seat1,seat2,seat0.
+  //   Carol(seat2) = 7♠ 8♠ ; Alice(seat0) = A♥ A♦ ; Bob(seat1) folds.
+  //   board A♠ K♦ 9♣ 4♥ 2♦ -> Alice trip aces, Carol just ace-high. Carol busts.
+  const top = [
+    c(2, 'Clubs'), c(7, 'Spades'), c(14, 'Hearts'),
+    c(3, 'Clubs'), c(8, 'Spades'), c(14, 'Diamonds'),
+    c(14, 'Spades'), c(13, 'Diamonds'), c(9, 'Clubs'),
+    c(4, 'Hearts'), c(2, 'Diamonds'),
+  ]
+  const t = new PokerTable({ smallBlind: 10, bigBlind: 20, startingStack: 1500 })
+  t.sit('a', 'Alice'); t.sit('b', 'Bob'); t.sit('c', 'Carol')
+  t.startGame(stacked(top))
+  t.seats[2].stack = 80 // Carol short: already posted 20 BB -> 100 total
+  t.applyAction('a', { type: 'raise', amount: 200 })
+  t.applyAction('b', { type: 'fold' })
+  t.applyAction('c', { type: 'call' }) // Carol all-in 100, loses to Alice
+  assert.strictEqual(t.phase, 'payout')
+  assert.strictEqual(t.seats[2].stack, 0)
+  assert.strictEqual(t.seats[2].eliminated, true)
+  assert.strictEqual(t.seats[2].finishPlace, 3) // 2 survivors + 1
+  // next hand: Carol is inert (folded, no cards), Alice & Bob still active
+  t.dealHand(new Deck().shuffle(() => 0))
+  assert.strictEqual(t.seats[2].folded, true)
+  assert.strictEqual(t.seats[2].holeCards.length, 0)
+})
+
+test('game ends when one active player remains', () => {
+  const c = (rank, suit) => ({ rank, suit })
+  // heads-up deal: seat1(Bob) <- 2♣,3♣ ; seat0(Alice) <- A♥,A♦.
+  // board A♠ K♦ 9♣ 7♥ 2♦ -> Alice trip aces beats Bob's pair of twos.
+  const top = [
+    c(2, 'Clubs'), c(14, 'Hearts'),
+    c(3, 'Clubs'), c(14, 'Diamonds'),
+    c(14, 'Spades'), c(13, 'Diamonds'), c(9, 'Clubs'),
+    c(7, 'Hearts'), c(2, 'Diamonds'),
+  ]
+  const t = new PokerTable({ smallBlind: 10, bigBlind: 20 })
+  t.sit('a', 'Alice'); t.sit('b', 'Bob')
+  t.startGame(stacked(top))
+  t.applyAction('a', { type: 'raise', amount: 1500 }) // Alice all-in
+  t.applyAction('b', { type: 'call' })                // Bob all-in, loses
+  assert.strictEqual(t.gamePhase, 'over')
+  assert.strictEqual(t.seats[1].eliminated, true)
+  assert.strictEqual(t.seats[1].finishPlace, 2)
+  assert.strictEqual(t.seats[0].finishPlace, 1) // winner
+})
+
+test('newGame returns to lobby and re-includes players', () => {
+  const c = (rank, suit) => ({ rank, suit })
+  const top = [
+    c(2, 'Clubs'), c(14, 'Hearts'),
+    c(3, 'Clubs'), c(14, 'Diamonds'),
+    c(14, 'Spades'), c(13, 'Diamonds'), c(9, 'Clubs'),
+    c(7, 'Hearts'), c(2, 'Diamonds'),
+  ]
+  const t = new PokerTable()
+  t.sit('a', 'A'); t.sit('b', 'B')
+  t.startGame(stacked(top))
+  t.applyAction('a', { type: 'raise', amount: 1500 })
+  t.applyAction('b', { type: 'call' })
+  assert.strictEqual(t.gamePhase, 'over')
+  t.newGame()
+  assert.strictEqual(t.gamePhase, 'lobby')
+  for (const s of t.seats.filter(Boolean)) {
+    assert.strictEqual(s.stack, 1500)
+    assert.strictEqual(s.eliminated, false)
+    assert.strictEqual(s.finishPlace, null)
+  }
+})

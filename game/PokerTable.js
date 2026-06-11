@@ -351,6 +351,7 @@ class PokerTable {
     this.winners = [{ id: w.id, username: w.username }]
     this.pot = 0
     this.phase = 'payout'
+    this._finishHand()
   }
 
   settlePots(scoreById) {
@@ -406,6 +407,7 @@ class PokerTable {
     })
     this.pot = 0
     this.phase = 'payout'
+    this._finishHand()
   }
 
   // Split `amount` among recipient ids, odd chip to the first eligible seat
@@ -421,6 +423,51 @@ class PokerTable {
       w.stack += share
       if (remainder > 0) { w.stack += 1; remainder-- }
     }
+  }
+
+  // After a hand settles: eliminate broke players (with finishing places) and
+  // end the game if one player remains.
+  _finishHand() {
+    if (this.gamePhase !== 'playing') return
+    const wasActive = p => !p.eliminated && !p.waiting
+    const busted = this.occupiedSeats().map(i => this.seats[i])
+      .filter(p => wasActive(p) && p.stack === 0)
+    const survivors = this.occupiedSeats().map(i => this.seats[i])
+      .filter(p => wasActive(p) && p.stack > 0)
+
+    // bigger pre-hand stack (== committed for an all-in bust) finishes higher
+    busted.sort((a, b) => b.committed - a.committed)
+    let place = survivors.length + 1
+    for (const p of busted) {
+      p.eliminated = true
+      p.finishPlace = place
+      place++
+    }
+
+    if (survivors.length === 1) {
+      survivors[0].finishPlace = 1
+      this.gamePhase = 'over'
+    }
+  }
+
+  // From 'over': reset everyone and return to the lobby for a new game.
+  newGame() {
+    if (this.gamePhase !== 'over') throw new Error('Game is not over')
+    this.gamePhase = 'lobby'
+    this.phase = 'waiting'
+    for (const i of this.occupiedSeats()) {
+      Object.assign(this.seats[i], {
+        stack: this.startingStack, holeCards: [], bet: 0, committed: 0,
+        folded: false, allIn: false, hasActed: false,
+        eliminated: false, finishPlace: null, waiting: false,
+      })
+    }
+    this.board = []
+    this.pot = 0
+    this.winners = []
+    this.reveal = false
+    this.buttonSeat = -1
+    this.toActSeat = -1
   }
 
   getStateFor(id) {
