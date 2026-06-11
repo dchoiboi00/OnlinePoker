@@ -27,13 +27,19 @@ io.on('connection', (socket) => {
     broadcast()
   })
 
-  socket.on('startHand', () => {
-    try {
-      table.startHand()
-      broadcast()
-    } catch (err) {
-      socket.emit('errorMsg', err.message)
-    }
+  socket.on('startGame', () => {
+    try { table.startGame(); broadcast() }
+    catch (err) { socket.emit('errorMsg', err.message) }
+  })
+
+  socket.on('dealHand', () => {
+    try { table.dealHand(); broadcast() }
+    catch (err) { socket.emit('errorMsg', err.message) }
+  })
+
+  socket.on('newGame', () => {
+    try { table.newGame(); broadcast() }
+    catch (err) { socket.emit('errorMsg', err.message) }
   })
 
   socket.on('action', (action) => {
