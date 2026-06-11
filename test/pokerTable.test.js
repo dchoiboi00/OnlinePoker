@@ -17,18 +17,18 @@ test('sit assigns the first empty seat; full table returns -1', () => {
   assert.strictEqual(t.sit('b', 'Bob'), 1)
 })
 
-test('startHand needs at least 2 players', () => {
+test('startGame needs at least 2 players', () => {
   const t = new PokerTable()
   t.sit('a', 'Alice')
-  assert.throws(() => t.startHand(), /at least 2/)
+  assert.throws(() => t.startGame(), /at least 2/)
 })
 
-test('startHand posts blinds, deals 2 hole cards, sets preflop', () => {
+test('startGame posts blinds, deals 2 hole cards, sets preflop', () => {
   const t = new PokerTable({ smallBlind: 10, bigBlind: 20, startingStack: 1500 })
   t.sit('a', 'Alice') // seat 0
   t.sit('b', 'Bob')   // seat 1
   t.sit('c', 'Carol') // seat 2
-  t.startHand(new Deck().shuffle(() => 0)) // deterministic shuffle
+  t.startGame(new Deck().shuffle(() => 0)) // deterministic shuffle
 
   assert.strictEqual(t.phase, 'preflop')
   // 3-handed: button=seat0, SB=seat1, BB=seat2
@@ -47,7 +47,7 @@ test('heads-up: button posts small blind and acts first preflop', () => {
   const t = new PokerTable({ smallBlind: 10, bigBlind: 20 })
   t.sit('a', 'Alice') // seat 0
   t.sit('b', 'Bob')   // seat 1
-  t.startHand(new Deck().shuffle(() => 0))
+  t.startGame(new Deck().shuffle(() => 0))
   assert.strictEqual(t.buttonSeat, 0)
   assert.strictEqual(t.seats[0].bet, 10) // button = SB heads-up
   assert.strictEqual(t.seats[1].bet, 20) // BB
@@ -57,7 +57,7 @@ test('heads-up: button posts small blind and acts first preflop', () => {
 test('legalActions for UTG facing the big blind', () => {
   const t = new PokerTable({ smallBlind: 10, bigBlind: 20 })
   t.sit('a', 'Alice'); t.sit('b', 'Bob'); t.sit('c', 'Carol')
-  t.startHand(new Deck().shuffle(() => 0))
+  t.startGame(new Deck().shuffle(() => 0))
   const la = t.legalActions('a') // seat 0, UTG, has bet 0, faces 20
   assert.strictEqual(la.canFold, true)
   assert.strictEqual(la.canCheck, false)   // facing a bet
@@ -71,14 +71,14 @@ test('legalActions for UTG facing the big blind', () => {
 test('legalActions returns null when it is not your turn', () => {
   const t = new PokerTable()
   t.sit('a', 'Alice'); t.sit('b', 'Bob'); t.sit('c', 'Carol')
-  t.startHand(new Deck().shuffle(() => 0))
+  t.startGame(new Deck().shuffle(() => 0))
   assert.strictEqual(t.legalActions('b'), null) // seat 1 is not to act
 })
 
 test('everyone folds to one player -> immediate win, pot awarded', () => {
   const t = new PokerTable({ smallBlind: 10, bigBlind: 20 })
   t.sit('a', 'Alice'); t.sit('b', 'Bob'); t.sit('c', 'Carol')
-  t.startHand(new Deck().shuffle(() => 0))
+  t.startGame(new Deck().shuffle(() => 0))
   // seat0 UTG folds, seat1 (SB) folds -> seat2 (BB) wins
   t.applyAction('a', { type: 'fold' })
   t.applyAction('b', { type: 'fold' })
@@ -91,7 +91,7 @@ test('everyone folds to one player -> immediate win, pot awarded', () => {
 test('rejects a check when facing a bet, and a raise below the minimum', () => {
   const t = new PokerTable({ smallBlind: 10, bigBlind: 20 })
   t.sit('a', 'Alice'); t.sit('b', 'Bob'); t.sit('c', 'Carol')
-  t.startHand(new Deck().shuffle(() => 0))
+  t.startGame(new Deck().shuffle(() => 0))
   assert.throws(() => t.applyAction('a', { type: 'check' }), /check/i)
   assert.throws(() => t.applyAction('a', { type: 'raise', amount: 30 }), /minimum/i)
 })
@@ -99,7 +99,7 @@ test('rejects a check when facing a bet, and a raise below the minimum', () => {
 test('calling around preflop closes the round and deals the flop', () => {
   const t = new PokerTable({ smallBlind: 10, bigBlind: 20 })
   t.sit('a', 'Alice'); t.sit('b', 'Bob'); t.sit('c', 'Carol')
-  t.startHand(new Deck().shuffle(() => 0))
+  t.startGame(new Deck().shuffle(() => 0))
   t.applyAction('a', { type: 'call' })  // UTG calls 20
   t.applyAction('b', { type: 'call' })  // SB completes to 20
   t.applyAction('c', { type: 'check' }) // BB checks option
@@ -132,7 +132,7 @@ test('showdown awards the pot to the best hand', () => {
   const rest = new Deck().cards.filter(x => !top.some(tt => tt.rank === x.rank && tt.suit === x.suit))
   const t = new PokerTable({ smallBlind: 10, bigBlind: 20 })
   t.sit('a', 'Alice'); t.sit('b', 'Bob')
-  t.startHand(new Deck([...top, ...rest]))
+  t.startGame(new Deck([...top, ...rest]))
   // play check/call to showdown: preflop button calls, BB checks
   t.applyAction('a', { type: 'call' })   // button completes to 20
   t.applyAction('b', { type: 'check' })  // -> flop, seat1 first to act postflop
@@ -160,7 +160,7 @@ test('a tie chops the pot evenly', () => {
   const rest = new Deck().cards.filter(x => !top.some(tt => tt.rank === x.rank && tt.suit === x.suit))
   const t = new PokerTable({ smallBlind: 10, bigBlind: 20 })
   t.sit('a', 'Alice'); t.sit('b', 'Bob')
-  t.startHand(new Deck([...top, ...rest]))
+  t.startGame(new Deck([...top, ...rest]))
   t.applyAction('a', { type: 'call' }); t.applyAction('b', { type: 'check' })
   t.applyAction('b', { type: 'check' }); t.applyAction('a', { type: 'check' })
   t.applyAction('b', { type: 'check' }); t.applyAction('a', { type: 'check' })
@@ -173,7 +173,7 @@ test('a tie chops the pot evenly', () => {
 test('getStateFor hides opponent hole cards before showdown', () => {
   const t = new PokerTable()
   t.sit('a', 'Alice'); t.sit('b', 'Bob'); t.sit('c', 'Carol')
-  t.startHand(new Deck().shuffle(() => 0))
+  t.startGame(new Deck().shuffle(() => 0))
   const view = t.getStateFor('a')
   const self = view.seats.find(s => s && s.isSelf)
   const other = view.seats.find(s => s && !s.isSelf)
@@ -186,7 +186,7 @@ test('getStateFor hides opponent hole cards before showdown', () => {
 test('getStateFor reveals live opponents at showdown', () => {
   const t = new PokerTable({ smallBlind: 10, bigBlind: 20 })
   t.sit('a', 'Alice'); t.sit('b', 'Bob')
-  t.startHand(new Deck().shuffle(() => 0))
+  t.startGame(new Deck().shuffle(() => 0))
   t.applyAction('a', { type: 'call' }); t.applyAction('b', { type: 'check' })
   t.applyAction('b', { type: 'check' }); t.applyAction('a', { type: 'check' })
   t.applyAction('b', { type: 'check' }); t.applyAction('a', { type: 'check' })
@@ -215,7 +215,7 @@ test('leaver was to act (3-handed) — hand does NOT freeze', () => {
   t.sit('a', 'Alice') // seat 0 — button, UTG (toActSeat preflop)
   t.sit('b', 'Bob')   // seat 1 — SB
   t.sit('c', 'Carol') // seat 2 — BB
-  t.startHand(new Deck().shuffle(() => 0))
+  t.startGame(new Deck().shuffle(() => 0))
   // seat 0 (UTG) is toActSeat
   assert.strictEqual(t.toActSeat, 0)
   t.leave('a') // UTG leaves while it is their turn
@@ -233,7 +233,7 @@ test('chip conservation: leaver chips stay in the pot', () => {
   t.sit('a', 'Alice') // seat 0 — button
   t.sit('b', 'Bob')   // seat 1 — SB
   t.sit('c', 'Carol') // seat 2 — BB
-  t.startHand(new Deck().shuffle(() => 0))
+  t.startGame(new Deck().shuffle(() => 0))
   // Bob (SB) has bet 10, Carol (BB) has bet 20; pot (via getStateFor) = 30
   const potBefore = t.getStateFor('c').pot
   assert.strictEqual(potBefore, 30)
@@ -248,7 +248,7 @@ test('heads-up: opponent leaves mid-hand → remaining player wins', () => {
   const t = new PokerTable({ smallBlind: 10, bigBlind: 20 })
   t.sit('a', 'Alice') // seat 0 — button / SB heads-up
   t.sit('b', 'Bob')   // seat 1 — BB
-  t.startHand(new Deck().shuffle(() => 0))
+  t.startGame(new Deck().shuffle(() => 0))
   const aliceStackBefore = t.seats[0].stack // 1490 (posted 10)
   // Bob leaves while the hand is live
   t.leave('b')
@@ -263,7 +263,7 @@ test('removed player is not dealt into the next hand', () => {
   t.sit('a', 'Alice') // seat 0
   t.sit('b', 'Bob')   // seat 1
   t.sit('c', 'Carol') // seat 2
-  t.startHand(new Deck().shuffle(() => 0))
+  t.startGame(new Deck().shuffle(() => 0))
   // Carol (BB, seat 2) leaves mid-hand
   t.leave('c')
   // Force the hand to end: the remaining two fold/act until hand concludes
@@ -277,7 +277,7 @@ test('removed player is not dealt into the next hand', () => {
   }
   // Start a new hand — Carol should not be seated
   assert.strictEqual(t.findSeatById('c'), -1)
-  t.startHand(new Deck().shuffle(() => 0))
+  t.dealHand(new Deck().shuffle(() => 0))
   // Only Alice and Bob should have hole cards; Carol's seat is null
   assert.strictEqual(t.seats[2], null)
   const occ = t.occupiedSeats()
@@ -307,7 +307,7 @@ test('short all-in wins only the main pot; the rest goes to the side pot', () =>
   t.sit('a', 'Alice') // seat 0 — button (UTG 3-handed)
   t.sit('b', 'Bob')   // seat 1 — SB
   t.sit('c', 'Carol') // seat 2 — BB
-  t.startHand(new Deck([...top, ...rest]))
+  t.startGame(new Deck([...top, ...rest]))
 
   // make Carol short: 20 already posted as BB, leave her only 80 behind
   t.seats[2].stack = 80
@@ -330,7 +330,7 @@ test('short all-in wins only the main pot; the rest goes to the side pot', () =>
 test('a player leaving mid-hand leaves no chips behind at showdown', () => {
   const t = new PokerTable({ smallBlind: 10, bigBlind: 20 })
   t.sit('a', 'Alice'); t.sit('b', 'Bob'); t.sit('c', 'Carol')
-  t.startHand(new Deck().shuffle(() => 0.5))
+  t.startGame(new Deck().shuffle(() => 0.5))
   // everyone limps in preflop
   t.applyAction('a', { type: 'call' })   // UTG calls 20
   t.applyAction('b', { type: 'call' })   // SB completes
@@ -360,4 +360,50 @@ test('a player leaving mid-hand leaves no chips behind at showdown', () => {
   const after = remaining.reduce(
     (sum, id) => sum + t.seats[t.findSeatById(id)].stack, 0)
   assert.strictEqual(after, before)
+})
+
+test('startGame assigns stacks, sets gamePhase playing, deals hand 1', () => {
+  const t = new PokerTable({ smallBlind: 10, bigBlind: 20, startingStack: 1500 })
+  t.sit('a', 'Alice'); t.sit('b', 'Bob'); t.sit('c', 'Carol')
+  assert.strictEqual(t.gamePhase, 'lobby')
+  t.startGame(new Deck().shuffle(() => 0))
+  assert.strictEqual(t.gamePhase, 'playing')
+  assert.strictEqual(t.phase, 'preflop')
+  assert.strictEqual(t.buttonSeat, 0)
+  for (const s of t.seats.filter(Boolean)) assert.strictEqual(s.holeCards.length, 2)
+})
+
+test('startGame twice throws (game already in progress)', () => {
+  const t = new PokerTable()
+  t.sit('a', 'A'); t.sit('b', 'B')
+  t.startGame(new Deck().shuffle(() => 0))
+  assert.throws(() => t.startGame(), /already in progress/)
+})
+
+test('dealHand carries stacks over and moves the button', () => {
+  const t = new PokerTable({ smallBlind: 10, bigBlind: 20 })
+  t.sit('a', 'Alice'); t.sit('b', 'Bob'); t.sit('c', 'Carol')
+  t.startGame(new Deck().shuffle(() => 0))
+  // hand 1, 3-handed (button seat0): UTG=seat0, SB=seat1(Bob), BB=seat2(Carol).
+  // Alice (UTG) and Bob (SB) fold -> Carol (BB) wins. Bob posted SB 10 -> stack 1490.
+  t.applyAction('a', { type: 'fold' })
+  t.applyAction('b', { type: 'fold' })
+  assert.strictEqual(t.phase, 'payout')
+  const button1 = t.buttonSeat
+  assert.strictEqual(t.seats[1].stack, 1490) // Bob lost his SB this hand
+
+  t.dealHand(new Deck().shuffle(() => 0))
+  assert.strictEqual(t.phase, 'preflop')
+  assert.notStrictEqual(t.buttonSeat, button1)      // button advanced 0 -> 1
+  // Bob is now the button (posts no blind), so his carried stack stays 1490.
+  // If dealHand had wrongly reset stacks, he would be back at 1500.
+  assert.strictEqual(t.buttonSeat, 1)
+  assert.strictEqual(t.seats[1].stack, 1490)
+})
+
+test('dealHand before payout throws', () => {
+  const t = new PokerTable()
+  t.sit('a', 'A'); t.sit('b', 'B')
+  t.startGame(new Deck().shuffle(() => 0))
+  assert.throws(() => t.dealHand(), /in progress/)
 })

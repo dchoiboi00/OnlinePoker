@@ -9,6 +9,7 @@ function newPlayer(id, username, stack) {
     id, username, stack,
     holeCards: [], bet: 0, committed: 0,
     folded: false, allIn: false, hasActed: false,
+    eliminated: false, finishPlace: null, waiting: false,
   }
 }
 
@@ -19,6 +20,7 @@ class PokerTable {
     this.bigBlind = bigBlind
     this.startingStack = startingStack
     this.phase = 'waiting'          // waiting|preflop|flop|turn|river|payout
+    this.gamePhase = 'lobby'         // lobby|playing|over
     this.board = []
     this.pot = 0
     this.currentBet = 0
@@ -102,15 +104,54 @@ class PokerTable {
     return out
   }
 
-  // ---- start a hand ----
-  startHand(deck) {
-    const occ = this.occupiedSeats()
-    if (occ.length < 2) throw new Error('Need at least 2 players')
+  // Seated and able to play this game (not eliminated, not waiting to join).
+  activeSeats() {
+    return this.occupiedSeats().filter(i => {
+      const p = this.seats[i]
+      return !p.eliminated && !p.waiting
+    })
+  }
 
-    for (const i of occ) {
+  // Active seats clockwise, starting just AFTER `seat` (exclusive).
+  activeSeatsFrom(seat) {
+    return this.seatsClockwiseFrom(seat).filter(i => {
+      const p = this.seats[i]
+      return !p.eliminated && !p.waiting
+    })
+  }
+
+  // ---- start a tournament (assign stacks once) ----
+  startGame(deck) {
+    if (this.gamePhase !== 'lobby') throw new Error('Game already in progress')
+    const seated = this.occupiedSeats()
+    if (seated.length < 2) throw new Error('Need at least 2 players')
+    for (const i of seated) {
       Object.assign(this.seats[i], {
-        stack: this.startingStack, holeCards: [], bet: 0, committed: 0,
-        folded: false, allIn: false, hasActed: false,
+        stack: this.startingStack, eliminated: false, finishPlace: null, waiting: false,
+      })
+    }
+    this.gamePhase = 'playing'
+    this.buttonSeat = this.activeSeats()[0]
+    this._setupHand(deck)
+  }
+
+  // ---- deal the next hand of an in-progress game (stacks carry over) ----
+  dealHand(deck) {
+    if (this.gamePhase !== 'playing') throw new Error('No game in progress')
+    if (this.phase !== 'payout') throw new Error('Hand still in progress')
+    if (this.activeSeats().length < 2) throw new Error('Need at least 2 players')
+    this.buttonSeat = this.activeSeatsFrom(this.buttonSeat)[0]
+    this._setupHand(deck)
+  }
+
+  // shared per-hand setup: reset per-hand state, post blinds, deal, set first to act
+  _setupHand(deck) {
+    for (const i of this.occupiedSeats()) {
+      const p = this.seats[i]
+      const inactive = p.eliminated || p.waiting
+      Object.assign(p, {
+        holeCards: [], bet: 0, committed: 0,
+        folded: inactive, allIn: false, hasActed: false,
       })
     }
     this.board = []
@@ -119,21 +160,17 @@ class PokerTable {
     this.reveal = false
     this.deck = deck || new Deck().shuffle()
 
-    // advance / set the button
-    this.buttonSeat = this.buttonSeat === -1
-      ? occ[0]
-      : this.seatsClockwiseFrom(this.buttonSeat)[0]
-
-    const after = this.seatsClockwiseFrom(this.buttonSeat)
+    const active = this.activeSeats()
+    const after = this.activeSeatsFrom(this.buttonSeat)
     let sbSeat, bbSeat, firstToAct
-    if (occ.length === 2) {
+    if (active.length === 2) {
       sbSeat = this.buttonSeat
       bbSeat = after[0]
-      firstToAct = this.buttonSeat                    // button acts first preflop
+      firstToAct = this.buttonSeat
     } else {
       sbSeat = after[0]
       bbSeat = after[1]
-      firstToAct = this.seatsClockwiseFrom(bbSeat)[0] // UTG
+      firstToAct = this.activeSeatsFrom(bbSeat)[0]
     }
 
     this.postBlind(sbSeat, this.smallBlind)
@@ -141,9 +178,8 @@ class PokerTable {
     this.currentBet = this.bigBlind
     this.minRaise = this.bigBlind
 
-    // deal two rounds, starting left of the button
     for (let round = 0; round < 2; round++) {
-      for (const i of this.seatsClockwiseFrom(this.buttonSeat)) {
+      for (const i of this.activeSeatsFrom(this.buttonSeat)) {
         this.seats[i].holeCards.push(this.deck.draw(1)[0])
       }
     }
