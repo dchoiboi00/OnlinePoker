@@ -53,6 +53,14 @@ class PokerTable {
     if (!handLive) {
       // No active hand — just free the seat.
       this.seats[seat] = null
+      // if a game is in progress and only one active player remains, end it
+      if (this.gamePhase === 'playing') {
+        const active = this.activeSeats()
+        if (active.length === 1) {
+          this.seats[active[0]].finishPlace = 1
+          this.gamePhase = 'over'
+        }
+      }
       return
     }
 

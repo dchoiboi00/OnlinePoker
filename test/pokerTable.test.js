@@ -518,3 +518,20 @@ test('getStateFor reports eliminated/finishPlace and waiting joiners', () => {
   assert.strictEqual(me.eliminated, false)
   assert.strictEqual(me.finishPlace, null)
 })
+
+test('leaving between hands until one remains ends the game', () => {
+  const t = new PokerTable({ smallBlind: 10, bigBlind: 20 })
+  t.sit('a', 'A'); t.sit('b', 'B'); t.sit('c', 'C')
+  t.startGame(new Deck().shuffle(() => 0))
+  // finish hand 1: fold around to the big blind
+  t.applyAction(t.seats[t.toActSeat].id, { type: 'fold' })
+  t.applyAction(t.seats[t.toActSeat].id, { type: 'fold' })
+  assert.strictEqual(t.phase, 'payout')
+  assert.strictEqual(t.gamePhase, 'playing')
+  t.leave('b')                              // 2 active remain (a, c)
+  assert.strictEqual(t.gamePhase, 'playing')
+  t.leave('c')                              // only one active player left
+  assert.strictEqual(t.gamePhase, 'over')
+  const winner = t.seats.find(s => s && s.finishPlace === 1)
+  assert.ok(winner, 'a winner should be declared')
+})
